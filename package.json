@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node .",
     "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
-    "dev": "ts-node-dev -r tsconfig-paths/register ./src/index.ts",
+    "dev": "ts-node-dev -r tsconfig-paths/register ./src/test.ts",
     "pub": "npm publish --access public",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -26,6 +26,7 @@
   },
   "homepage": "https://github.com/lc-cn/ts-dev-template#readme",
   "devDependencies": {
+    "@types/js-yaml": "^4.0.5",
     "@types/node": "latest",
     "ts-node-dev": "latest",
     "tsc-alias": "latest",
@@ -37,5 +38,11 @@
     "/lib/**/*.d.ts",
     "/lib/**/LICENSE"
   ],
-  "dependencies": {}
+  "dependencies": {
+    "@types/koa": "^2.13.5",
+    "event-deliver": "^1.0.2",
+    "js-yaml": "^4.1.0",
+    "koa": "^2.13.4",
+    "oicq": "^2.3.1"
+  }
 }
