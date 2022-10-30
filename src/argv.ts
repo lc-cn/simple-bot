@@ -6,6 +6,8 @@ export interface Argv<A extends any[] = any[], O = {},E extends keyof Bot.Messag
     source: string//原文
     args?: A//携带的args
     options?: O//携带的options
+    cqCode?:string
+    event?:Bot.MessageEvent[E]
     error?: string//是否报错
     message?:Bot.MessageEvent[E]
     bot?:Bot
