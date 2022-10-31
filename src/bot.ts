@@ -3,9 +3,9 @@ import Koa from 'koa'
 import {FSWatcher,watch} from "chokidar";
 import * as yaml from 'js-yaml'
 import {resolve} from 'path'
-import {readFileSync,existsSync, writeFileSync} from "fs";
+import {readFileSync,readdirSync,existsSync, writeFileSync} from "fs";
 import {Context} from "@/context";
-import {deepMerge} from "@/utils";
+import {deepMerge, isArray} from "@/utils";
 import {Command} from "@/command";
 import {Argv} from "@/argv";
 export class Bot extends Client{
@@ -27,12 +27,31 @@ export class Bot extends Client{
         this.dispatch(event,...args)
         return super.emit(event,...args)
     }
-    loadPlugins(){
-        Object.keys(this.options.plugins)
-            .forEach((name)=>{
-                this.loadPlugin(name)
-                console.log('已加载插件'+name)
+    loadLocalPlugins(userPluginDir:string){
+        if(existsSync(userPluginDir)){
+            const files=readdirSync(userPluginDir,{withFileTypes:true})
+            files.forEach((file) => {
+                if(file.isFile()){
+                    if(file.name.endsWith('.js') || (file.name.endsWith('.ts') && !file.name.endsWith('.d.ts'))){
+                        const filename = file.name.replace('.js', '').replace('.ts','');
+                        require(userPluginDir+'/'+filename);
+                    }
+                }else{
+                    this.loadLocalPlugins(userPluginDir+'/'+file.name)
+                }
+            });
+        }
+    }
+    loadModulePlugins(){
+        const packageJsonPath=resolve(process.cwd(),'package.json')
+        if(existsSync(packageJsonPath)){
+            const {dependencies={}}=require(packageJsonPath)
+            Object.keys(dependencies).filter(name=>{
+                return /^(simple-bot-|@simple-bot\/)plugin-.*/.test(name)
+            }).forEach(name=>{
+                require(name)
             })
+        }
     }
     get pluginDependencies(){
         return Array.from(new Set([...this.plugins.values()].map(plugin=>{
@@ -94,8 +113,12 @@ export class Bot extends Client{
         watcher.on('change',onChange)
     }
     async start (){
-        this.loadPlugins()
-        this.watch(resolve(process.cwd(),this.options.plugin_dir),(filename)=>{
+        // 自动加载所有用户插件
+        const userPluginDir=resolve(process.cwd(),this.options.plugin_dir)
+        this.loadLocalPlugins(userPluginDir)
+        // 尝试加载npm包中的插件
+        this.loadModulePlugins()
+        this.watch(userPluginDir,(filename)=>{
             const restartPlugin=(name:string,plugin:Context)=>{
                 plugin.emit('dispose')
                 if(plugin.mainFile!==filename){

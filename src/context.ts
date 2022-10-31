@@ -70,6 +70,11 @@ export class Context<T extends object={}> extends EventEmitter{
             const middleware=this.compose()
             middleware(event)
         })
+        this.on('dispose',()=>{
+            while (this.disposes.length){
+                this.disposes.shift()()
+            }
+        })
 
         return context
     }
