@@ -2,7 +2,7 @@ import {Context, MessageEvent} from "@/context";
 import {Bot} from "@/bot";
 import {Argv} from "@/argv";
 import {Define} from "@/utils";
-import {Sendable} from "oicq";
+import {Sendable} from "onebot-client";
 
 export class Command<A extends any[]=any[],O ={},E extends keyof Bot.MessageEvent=keyof Bot.MessageEvent>{
     public name:string

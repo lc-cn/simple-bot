@@ -7,21 +7,19 @@ interface Message {
     body: any
 }
 let buffer = null
-export function start(uin:number,options:Partial<Bot.Options>|string='simple.yaml'){
+export function start(uin:number,options:Partial<Bot.Options>|string='bot'){
     child=fork(join(__dirname,'worker'),[],{
         env:{
             uin:String(uin),
-            options:resolve(process.cwd(),typeof options==='string'?options:'simple.yaml')
+            options:resolve(process.cwd(),typeof options==='string'?options:'bot')
         },
         execArgv:[
             '-r', 'esbuild-register',
             '-r', 'tsconfig-paths/register'
         ]
     })
-    let config: { autoRestart: boolean }
     child.on('message', (message: Message) => {
         if (message.type === 'start') {
-            config = message.body
             if (buffer) {
                 child.send({type: 'send', body: buffer})
                 buffer = null
@@ -30,9 +28,8 @@ export function start(uin:number,options:Partial<Bot.Options>|string='simple.yam
             buffer = message.body
         }
     })
-    const closingCode = [0, 130, 137]
     child.on('exit', (code) => {
-        if (!config || closingCode.includes(code) || code !== 51 && !config.autoRestart) {
+        if (code !== 51) {
             process.exit(code)
         }
         start(uin,options)

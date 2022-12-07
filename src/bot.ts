@@ -1,16 +1,18 @@
-import {Client, Config, GroupMessageEvent, PrivateMessageEvent} from 'oicq'
 import Koa from 'koa'
-import {FSWatcher,watch} from "chokidar";
+import {Client, GroupMessageEvent, PrivateMessageEvent} from "onebot-client";
+import {watch} from "chokidar";
 import * as yaml from 'js-yaml'
-import {resolve} from 'path'
+import {getLogger, Logger} from "log4js";
+import {dirname, resolve} from 'path'
 import {readFileSync,readdirSync,existsSync, writeFileSync} from "fs";
 import {Context} from "@/context";
-import {deepMerge, isArray} from "@/utils";
+import {deepMerge, isSame} from "@/utils";
 import {Command} from "@/command";
-import {Argv} from "@/argv";
+import {useHelp} from "@/help";
 export class Bot extends Client{
     public plugins:Map<string,Context>=new Map<string, Context>()
     public services:Partial<Bot.Services>={}
+    public logger:Logger
     isStarted:boolean=false
     isReady:boolean=false
     master:number
@@ -18,12 +20,18 @@ export class Bot extends Client{
     public options:Bot.Options
     constructor(uin:number,options:Partial<Bot.Options>={}) {
         deepMerge(options,Bot.defaultOptions)
-        super(uin,options);
+        super(uin,options.remote_url||options as Bot.Options);
+        this.logger=getLogger('simple-bot')
+        this.logger.level=options.log_level
         this.master=options.master
         this.admins=[].concat(options.admins).filter(Boolean)
         this.options=options as Bot.Options
     }
+    get commandList():Command[]{
+        return [...this.plugins.values()].filter(p=>!p.disabled).map(p=>p.commandList).flat()
+    }
     emit(event:string|symbol,...args:any[]){
+        console.log(event,...args)
         this.dispatch(event,...args)
         return super.emit(event,...args)
     }
@@ -47,7 +55,7 @@ export class Bot extends Client{
         if(existsSync(packageJsonPath)){
             const {dependencies={}}=require(packageJsonPath)
             Object.keys(dependencies).filter(name=>{
-                return /^(simple-bot-|@simple-bot\/)plugin-.*/.test(name)
+                return /^(@spoint\/bot-|spoint-bot-\/)plugin-.*/.test(name)
             }).forEach(name=>{
                 require(name)
             })
@@ -70,16 +78,16 @@ export class Bot extends Client{
             const resolvedPath=this.resolvePath(name,[
                 `${this.options.plugin_dir}/${name}`,
                 `${__dirname}/plugins/${name}`,
-                `@simple-bot/plugin-${name}`,
-                `simple-bot-plugin-${name}`
+                `@spoint/bot-plugin-${name}`,
+                `spoint-bot-plugin-${name}`
             ])
             require(resolvedPath)
             this.dispatch(`plugin.${name}.mounted`)
             if(this.isStarted){
-                this.plugins.get(name)?.emit('bot.start')
+                this.plugins.get(name)?.trip('bot.start')
             }
             if(this.isReady){
-                this.plugins.get(name)?.emit('bot.ready')
+                this.plugins.get(name)?.trip('bot.ready')
             }
         }catch (e){
             console.error(e.message)
@@ -96,14 +104,7 @@ export class Bot extends Client{
     async dispatch(event:string|symbol,...args:any[]){
         for(const [_,ctx] of this.plugins){
             if(ctx.disabled) continue
-            await ctx.emitSync(event,...args)
-        }
-    }
-    async bailSync(event:string|symbol,...args:any[]){
-        const listeners=this.listeners(event)
-        for(const listener of listeners){
-            let result=await listener(...args)
-            if(result) return result
+            await ctx.tripAsync(event,...args)
         }
     }
     watch(dir:string,onChange:(filePath:string)=>any){
@@ -112,68 +113,88 @@ export class Bot extends Client{
         })
         watcher.on('change',onChange)
     }
+    restartPlugin(name:string,plugin:Context,changeFile:string){
+        plugin.trip('dispose')
+        if(plugin.mainFile!==changeFile){
+            delete require.cache[plugin.mainFile]
+        }
+        delete require.cache[changeFile]
+        this.plugins.delete(name)
+        this.loadPlugin(name.replace('plugins','').slice(1))
+        console.log(`plugin （${name}） restarted`)
+    }
+    private watchConfigChange(){
+        const configFilePath=resolve(process.cwd(),this.options.saveTo)
+        const configDir=dirname(configFilePath)
+        this.watch(configDir,(filename)=>{
+            if(filename!==configFilePath) return
+            const newConfig=deepMerge(Bot.defaultOptions,yaml.load(readFileSync(filename,"utf8"))) as Bot.Options
+            const oldConfig=JSON.parse(JSON.stringify(this.options)) as Bot.Options
+            this.options=newConfig
+            if(isSame(newConfig.plugins,oldConfig.plugins)){
+                return process.exit(51)
+            }
+            this.emit('plugin.config.change',newConfig.plugins,oldConfig.plugins)
+        })
+    }
     async start (){
         // 自动加载所有用户插件
         const userPluginDir=resolve(process.cwd(),this.options.plugin_dir)
         this.loadLocalPlugins(userPluginDir)
         // 尝试加载npm包中的插件
         this.loadModulePlugins()
+        this.watchConfigChange()
         this.watch(userPluginDir,(filename)=>{
-            const restartPlugin=(name:string,plugin:Context)=>{
-                plugin.emit('dispose')
-                if(plugin.mainFile!==filename){
-                    delete require.cache[plugin.mainFile]
-                }
-                delete require.cache[filename]
-                this.plugins.delete(name)
-                this.loadPlugin(name.replace('plugins','').slice(1))
-                console.log(`plugin （${name}） restarted`)
-            }
             if(!this.pluginDependencies.includes(filename)) return
             for(const [name,plugin] of this.plugins){
                 if(plugin.mainFile===filename){
                     console.log(`plugin (${name})${filename} changed，restarting...`)
-                    restartPlugin(name,plugin)
+                    this.restartPlugin(name,plugin,filename)
                     break;
                 }
             }
             const needRestartPlugins:[string,Context][]=[]
             for(const [name,plugin] of this.plugins){
                 if(plugin.dependencies.includes(filename)){
-                    console.log(`plugin (${name}) dependencies:${filename} changed，restarting...`)
+                    console.log(`plugin (${name}) dependency:${filename} changed，restarting...`)
                     needRestartPlugins.push([name,plugin])
                     break;
                 }
             }
             needRestartPlugins.forEach(([name,plugin])=>{
-                restartPlugin(name,plugin)
+                this.restartPlugin(name,plugin,filename)
             })
         })
+        if(this.options.help) useHelp()
+        await super.start()
+        this.login(this.options.password)
         await this.dispatch('bot.start')
         this.isStarted=true
         await this.dispatch('bot.ready')
-        this.login(this.options.password)
         this.isReady=true
     }
 }
 export interface Bot extends Bot.Services{}
 declare global{
-    export var __SIMPLE_BOT__:Bot
+    export var __SPOINT_BOT__:Bot
 }
-export function createBot(uin:number,config:Partial<Bot.Options>|string='simple.yaml'){
-    if(typeof config!=="string") writeFileSync(resolve(process.cwd(),config.saveTo||'simple.yaml'),yaml.dump(config),"utf8")
+export function createBot(uin:number,config:Partial<Bot.Options>|string='bot.yaml'){
+    if(typeof config!=="string") writeFileSync(resolve(process.cwd(),config.saveTo||'bot.yaml'),yaml.dump(config),"utf8")
     else {
         if(!existsSync(resolve(process.cwd(),config))){
             writeFileSync(resolve(process.cwd(),config),yaml.dump(Bot.defaultOptions),'utf8')
         }
         config=yaml.load(readFileSync(config,"utf8")) as Bot.Options
     }
-    return global.__SIMPLE_BOT__=new Bot(uin,config)
+    return global.__SPOINT_BOT__=new Bot(uin,config)
 }
 export namespace Bot{
-    export interface Options extends Config{
+    export type LogLevel='off'|'info'|'warn'|'error'|'mark'
+    export interface Options extends Client.Options{
         saveTo?:string
         master?:number
+        log_level?:LogLevel
+        help?:boolean
         admins?:number|number[]
         plugins:Record<string, Record<string, any>>
         password?:string
@@ -184,10 +205,12 @@ export namespace Bot{
         private:PrivateMessageEvent
     }
     export const defaultOptions:Partial<Options>={
-        saveTo:'simple.yaml',
+        saveTo:'bot.yaml',
         plugins:{},
+        help:true,
+        log_level:'info',
+        remote_url:'ws://localhost:6727/210723495',
         plugin_dir:'plugins',
-        data_dir:resolve(process.cwd(),'data')
     }
     export interface Services{
         koa:Koa

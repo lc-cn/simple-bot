@@ -3,7 +3,7 @@ import {Bot} from "./bot";
 export interface Argv<A extends any[] = any[], O = {},E extends keyof Bot.MessageEvent=keyof Bot.MessageEvent> {
     name:string//指令名称
     argv:string[]
-    source: string//原文
+    source?: string//原文
     args?: A//携带的args
     options?: O//携带的options
     cqCode?:string

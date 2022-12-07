@@ -1,5 +1,5 @@
 {
-  "name": "@lc-cn/ts-dev-template",
+  "name": "@spoint/bot",
   "version": "1.0.0",
   "description": "ts开发环境配置",
   "main": "lib/index.js",
@@ -42,9 +42,11 @@
     "chokidar": "^3.5.3",
     "esbuild": "^0.15.5",
     "esbuild-register": "^3.3.3",
-    "tsconfig-paths": "^4.0.0",
     "js-yaml": "^4.1.0",
     "koa": "^2.13.4",
-    "oicq": "^2.3.1"
+    "log4js": "^6.7.1",
+    "onebot-client": "^1.0.16",
+    "triptrap": "^0.0.12",
+    "tsconfig-paths": "^4.0.0"
   }
 }

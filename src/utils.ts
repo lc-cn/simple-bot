@@ -14,8 +14,8 @@ export function deepMerge<T>(base:T, ...from:T[]):T {
                 if (typeof base[key] === 'object') {
                     base[key] = deepMerge(base[key], item[key]) as any;
                 }
-                else {
-                    base[key] = item[key] as any;
+                else if(base[key]===undefined){
+                    base[key] = item[key] as  any
                 }
             }
             else {
@@ -153,7 +153,14 @@ export const toNumber = (val: any): any => {
     const n = parseFloat(val)
     return isNaN(n) ? val : n
 }
-
+export function hasIn(list,obj){
+    return list.some(item=>isSame(item,obj))
+}
+export function isSame(obj1,obj2){
+    if(typeof obj1!=='object') return obj1===obj2
+    if(Array.isArray(obj1)) return obj1.every((item)=>hasIn(obj2,item))
+    return Object.keys(obj1).every(key=>isSame(obj1[key],obj2[key]))
+}
 let _globalThis: any
 export const getGlobalThis = (): any => {
     return (
